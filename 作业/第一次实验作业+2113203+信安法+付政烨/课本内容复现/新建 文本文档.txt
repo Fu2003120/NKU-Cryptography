@@ -1,0 +1,427 @@
+import random
+import csv
+
+# S-Box: Used for substitution operation, providing a non-linear substitution step.
+S_Box = [0xE, 0x4, 0xD, 0x1, 0x2, 0xF, 0xB, 0x8, 0x3, 0xA, 0x6, 0xC, 0x5, 0x9, 0x0, 0x7]
+
+# P-Box: Used for permutation operation, it rearranges the input bits.
+P_Box = [1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15, 4, 8, 12, 16]
+
+# Generate five 16-bit subkeys from a 32-bit master key.
+def gen_K_list(K):
+    Ks = []
+    for _ in range(5):
+        Ks.append(K & 0xFFFF)  # Get the last 16 bits of K
+        K >>= 4  # Right shift by 4 bits
+    return Ks[::-1]
+
+# Perform substitution operation using the S-Box.
+def pi_s(s_box, ur):
+    vr = 0
+    for i in range(4):
+        uri = ur & 0xF  # Get the last 4 bits of ur
+        vri = s_box[uri]  # Get the substitute value from the S-Box
+        vr += vri << (4 * i)  # Store the result in vr
+        ur >>= 4  # Right shift by 4 bits
+    return vr
+
+# Perform permutation operation using the P-Box.
+def pi_p(p_box, vr):
+    wr = 0
+    for i in range(15, -1, -1):
+        vri = vr & 1  # Get the last bit of vr
+        vr >>= 1  # Right shift by 1 bit
+        wr |= vri << (16 - p_box[i])  # Rearrange bits based on P-Box value
+    return wr
+
+# Implement the SPN encryption operation.
+def do_SPN(x, s_box, p_box, Ks):
+    wr = x
+    # Execute Nr-1 rounds of encryption, each round includes three steps: Key addition, substitution, and permutation.
+    for r in range(3):
+        ur = wr ^ Ks[r]  # Key addition
+        vr = pi_s(s_box, ur)  # Substitution
+        wr = pi_p(p_box, vr)  # Permutation
+    # The last round does not include permutation.
+    ur = wr ^ Ks[3]  # Key addition
+    vr = pi_s(s_box, ur)  # Substitution
+    return vr ^ Ks[4]  # Output the result after another key addition
+
+# Encrypt a 16-bit plaintext with a given 32-bit key.
+def encrypt(K, x):
+    Ks = gen_K_list(K)  # Generate subkeys
+    return do_SPN(x, S_Box, P_Box, Ks)  # Execute SPN encryption
+
+# Generate plaintext-ciphertext pairs
+def generate_pairs():
+    # 0011 1010 1001 0100 1101 0110 0011 1111
+    K = int("00111010100101001101011000111111", 2)
+    
+    pairs = []
+    # 设置明文-密文对个数
+    for _ in range(10000):
+        plaintext = random.randint(0, 0xFFFF)
+        ciphertext = encrypt(K, plaintext)
+        pairs.append((format(plaintext, '016b'), format(ciphertext, '016b')))
+    
+    return pairs
+
+# Save the pairs to a CSV file
+def save_to_csv(pairs, filename):
+    with open(filename, 'w', newline='') as csvfile:
+        fieldnames = ['Plaintext', 'Ciphertext']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for p, c in pairs:
+            writer.writerow({'Plaintext': p, 'Ciphertext': c})
+
+# Generate and save plaintext-ciphertext pairs to a CSV file
+pairs = generate_pairs()
+filename = "./data/明文_密文对.csv"
+save_to_csv(pairs, filename)
+
+def calculate_bias(K_values):
+    # Read the CSV file and extract the specified bits from the ciphertext
+    def extract_bits_from_ciphertext(filename):
+        extracted_data = []
+
+        with open(filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                ciphertext = row['Ciphertext']
+                extracted_bits = {
+                    'Y5': ciphertext[4],
+                    'Y6': ciphertext[5],
+                    'Y7': ciphertext[6],
+                    'Y8': ciphertext[7],
+                    'Y13': ciphertext[12],
+                    'Y14': ciphertext[13],
+                    'Y15': ciphertext[14],
+                    'Y16': ciphertext[15],
+                }
+                extracted_data.append(extracted_bits)
+
+        # Write the extracted bits to a new CSV file
+        output_filename = "./data/特定比特位的密文.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['Y5', 'Y6', 'Y7', 'Y8', 'Y13', 'Y14', 'Y15', 'Y16']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in extracted_data:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Extract the specified bits from the uploaded file and save to a new CSV file
+    output_file = extract_bits_from_ciphertext("./data/明文_密文对.csv")
+
+    # Define the default values for K bits
+
+
+    # Perform XOR operation on extracted bits and K values
+    def xor_operation(input_filename):
+        xor_results = []
+
+        with open(input_filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                xor_row = {
+                    'U5': str(int(row['Y5']) ^ int(K_values['K5'])),
+                    'U6': str(int(row['Y6']) ^ int(K_values['K6'])),
+                    'U7': str(int(row['Y7']) ^ int(K_values['K7'])),
+                    'U8': str(int(row['Y8']) ^ int(K_values['K8'])),
+                    'U13': str(int(row['Y13']) ^ int(K_values['K13'])),
+                    'U14': str(int(row['Y14']) ^ int(K_values['K14'])),
+                    'U15': str(int(row['Y15']) ^ int(K_values['K15'])),
+                    'U16': str(int(row['Y16']) ^ int(K_values['K16']))
+                }
+                xor_results.append(xor_row)
+
+        # Write the XOR results to a new CSV file
+        output_filename = "./data/Y与K异或结果.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['U5', 'U6', 'U7', 'U8', 'U13', 'U14', 'U15', 'U16']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in xor_results:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Perform XOR operation with the specified bits and save to a new CSV file
+    output_xor_file = xor_operation("./data/特定比特位的密文.csv")
+
+    # Convert binary values to hexadecimal and save to a new CSV file
+    def binary_to_hex(binary_str):
+        """Convert a binary string to a hexadecimal string."""
+        return format(int(binary_str, 2), 'x').upper()
+
+    def convert_and_save(input_filename):
+        hex_results = []
+
+        with open(input_filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                H1 = binary_to_hex(row['U5'] + row['U6'] + row['U7'] + row['U8'])
+                H2 = binary_to_hex(row['U13'] + row['U14'] + row['U15'] + row['U16'])
+                hex_row = {'H1': H1, 'H2': H2}
+                hex_results.append(hex_row)
+
+        # Write the hexadecimal results to a new CSV file
+        output_filename = "./data/Y与K异或结果（16进制）.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['H1', 'H2']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in hex_results:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Convert binary values to hexadecimal and save to a new CSV file
+    output_hex_file = convert_and_save("./data/Y与K异或结果.csv")
+
+    
+    # Define the conversion mapping for H1 to X1
+    conversion_map = {
+        'E': '0', '4': '1', 'D': '2', '1': '3',
+        '2': '4', 'F': '5', 'B': '6', '8': '7',
+        '3': '8', 'A': '9', '6': 'A', 'C': 'B',
+        '5': 'C', '9': 'D', '0': 'E', '7': 'F'
+    }
+
+    # Convert H1 and H2 to X1 and X2 using the provided mapping
+    def convert_H_to_X(input_filename):
+        X_results = []
+
+        with open(input_filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                X1 = conversion_map[row['H1']]
+                X2 = conversion_map[row['H2']]
+                X_row = {'X1': X1, 'X2': X2}
+                X_results.append(X_row)
+
+        # Write the X values to a new CSV file
+        output_filename = "./data/S盒逆置换结果（16进制）.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['X1', 'X2']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in X_results:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Convert H1 and H2 to X1 and X2 using the provided mapping and save to a new CSV file
+    output_X_file = convert_H_to_X("./data/Y与K异或结果（16进制）.csv")
+
+    # Convert hexadecimal values to binary and save to a new CSV file
+    def hex_to_binary(hex_str):
+        """Convert a hexadecimal string to a binary string."""
+        return format(int(hex_str, 16), '04b')
+
+    # Convert X1 and X2 to binary and save to a new CSV file
+    def convert_X_to_u(input_filename):
+        u_results = []
+
+        with open(input_filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                u5, u6, u7, u8 = tuple(hex_to_binary(row['X1']))
+                u13, u14, u15, u16 = tuple(hex_to_binary(row['X2']))
+                u_row = {
+                    'u5': u5, 'u6': u6, 'u7': u7, 'u8': u8,
+                    'u13': u13, 'u14': u14, 'u15': u15, 'u16': u16
+                }
+                u_results.append(u_row)
+
+        # Write the u values to a new CSV file
+        output_filename = "./data/S盒逆置换结果.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['u5', 'u6', 'u7', 'u8', 'u13', 'u14', 'u15', 'u16']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in u_results:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Convert X1 and X2 to u values and save to a new CSV file
+    output_u_file = convert_X_to_u("./data/S盒逆置换结果（16进制）.csv")
+
+    # Extract specified bits from plaintext and save to a new CSV file
+    def extract_bits_from_plaintext(filename):
+        extracted_data = []
+
+        with open(filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                plaintext = row['Plaintext']
+                extracted_bits = {
+                    'x5': plaintext[4],
+                    'x7': plaintext[6],
+                    'x8': plaintext[7]
+                }
+                extracted_data.append(extracted_bits)
+
+        # Write the extracted bits to a new CSV file
+        output_filename = "./data/特定比特位的明文.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['x5', 'x7', 'x8']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in extracted_data:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Extract specified bits from plaintext and save to a new CSV file
+    output_plaintext_bits_file = extract_bits_from_plaintext("./data/明文_密文对.csv")
+
+    # Merge extracted plaintext bits and u results, then calculate the XOR result
+    def merge_and_calculate_xor(plaintext_file, u_file):
+        with open(plaintext_file, 'r') as plaintext_csv, open(u_file, 'r') as u_csv:
+            plaintext_reader = csv.DictReader(plaintext_csv)
+            u_reader = csv.DictReader(u_csv)
+
+            merged_data = []
+            for plaintext_row, u_row in zip(plaintext_reader, u_reader):
+                xor_result = int(u_row['u6']) ^ int(u_row['u8']) ^ int(u_row['u14']) ^ int(u_row['u16']) \
+                            ^ int(plaintext_row['x5']) ^ int(plaintext_row['x7']) ^ int(plaintext_row['x8'])
+
+                merged_row = {
+                    'x5': plaintext_row['x5'],
+                    'x7': plaintext_row['x7'],
+                    'x8': plaintext_row['x8'],
+                    'u6': u_row['u6'],
+                    'u8': u_row['u8'],
+                    'u14': u_row['u14'],
+                    'u16': u_row['u16'],
+                    'aws': str(xor_result)
+                }
+                merged_data.append(merged_row)
+
+        # Write the merged data and XOR result to a new CSV file
+        output_filename = "./data/随机变量异或逻辑表.csv"
+        with open(output_filename, 'w', newline='') as csvfile:
+            fieldnames = ['x5', 'x7', 'x8', 'u6', 'u8', 'u14', 'u16', 'aws']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in merged_data:
+                writer.writerow(row)
+
+        return output_filename
+
+    # Merge extracted plaintext bits and u results, calculate XOR result, and save to a new CSV file
+    output_answer_file = merge_and_calculate_xor("./data/特定比特位的明文.csv", "./data/S盒逆置换结果.csv")
+        
+        # Count the number of zeros in the 'aws' column of the answer.csv file
+    def count_zeros_in_aws(filename):
+        count = 0
+
+        with open(filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                if row['aws'] == '0':
+                    count += 1
+
+        return count
+
+    # Count the number of zeros in the 'aws' column of the answer.csv file
+    zero_count = count_zeros_in_aws("./data/随机变量异或逻辑表.csv")
+
+    # Count the total number of entries in the 'aws' column of the answer.csv file
+    def count_total_entries_in_aws(filename):
+        count = 0
+
+        with open(filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for _ in reader:
+                count += 1
+
+        return count
+
+    # Count the total number of entries in the 'aws' column of the answer.csv file
+    total_count = count_total_entries_in_aws("./data/随机变量异或逻辑表.csv")
+
+    # Calculate the bias
+    bias = zero_count / total_count - 0.5
+
+    return bias
+
+# Initialize the K_values dictionary
+K_values = {
+    'K5': '0',
+    'K6': '0',
+    'K7': '0',
+    'K8': '0',
+    'K13': '0',
+    'K14': '0',
+    'K15': '0',
+    'K16': '0'
+}
+
+# Initialize a list to store biases for each iteration
+biases = []
+
+# Iterate through 256 values (0 to 255)
+for i in range(256):
+    # Convert the current value of 'i' to an 8-bit binary string
+    binary_str = format(i, '08b')
+
+    # Update the K_values dictionary with the binary string
+    K_values['K5'] = binary_str[0]
+    K_values['K6'] = binary_str[1]
+    K_values['K7'] = binary_str[2]
+    K_values['K8'] = binary_str[3]
+    K_values['K13'] = binary_str[4]
+    K_values['K14'] = binary_str[5]
+    K_values['K15'] = binary_str[6]
+    K_values['K16'] = binary_str[7]
+
+    # Calculate the bias for the current K_values
+    bias = calculate_bias(K_values)
+    
+    # Append the bias to the list
+    biases.append(bias)
+
+# Create and write the results to a CSV file
+output_filename = "./data/偏差统计结果.csv"
+with open(output_filename, 'w', newline='') as csvfile:
+    fieldnames = ['Keys', 'Bias']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    writer.writeheader()
+    for i, bias in enumerate(biases):
+        keys_binary = format(i, '08b')
+        writer.writerow({'Keys': keys_binary, 'Bias': abs(bias)})
+
+print("Results saved to", output_filename)
+
+# Load the biases from the CSV file
+biases = []
+with open("./data/偏差统计结果.csv", 'r') as csvfile:
+    reader = csv.DictReader(csvfile)
+    for row in reader:
+        # Parse the Keys and Bias columns from the CSV
+        keys = row['Keys']
+        bias = float(row['Bias'])
+        biases.append((keys, bias))
+
+# Initialize variables to keep track of the closest bias and its corresponding keys
+closest_bias = float('inf')  # Initialize with positive infinity
+closest_keys = None
+
+# Iterate through the biases and find the closest one to 1/32
+for keys, bias in biases:
+    # Calculate the absolute difference from 1/32
+    diff = abs(bias - 1/32)
+    
+    # Check if this bias is closer than the previous closest
+    if diff < abs(closest_bias - 1/32):
+        closest_bias = bias
+        closest_keys = keys
+
+# Print the keys and bias that are closest to 1/32
+print(f"Keys: {closest_keys}")
+print(f"Closest Bias: {closest_bias:.6f}")
